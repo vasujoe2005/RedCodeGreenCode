@@ -12,26 +12,26 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Code, Play, Send, Terminal, AlertCircle, CheckCircle, Lock, Eye, EyeOff } from 'lucide-react';
 import axios from 'axios';
 
-const Round2Page = ({ teamData, socket }) => {
+const Round2Page = ({ teamData, socket, setCurrentView, memberIdentifier }) => {
     const [activeTab, setActiveTab] = useState(0);
     const [code, setCode] = useState("");
     const [output, setOutput] = useState("");
     const [isRunning, setIsRunning] = useState(false);
     const [results, setResults] = useState(null);
-    const [role, setRole] = useState(null);
+
+    // Round 2 roles: Whisperer (Eyes) and Blind Coder (Hands)
+    const activeRole = teamData?.round2Progress?.roleSelection?.[memberIdentifier] || 'whisperer';
+    const isQualifed = teamData?.round1?.status === 'completed';
 
     const problems = teamData?.round2Progress?.problems || [];
     const currentProblem = problems[activeTab];
 
     useEffect(() => {
-        // Determine role based on teamData and local storage/session (simplified here)
-        const storedRole = localStorage.getItem('userRole'); // 'defuser' or 'instructor'
-        setRole(storedRole);
-
+        if (!isQualifed) return;
         if (currentProblem) {
             setCode(currentProblem.buggyCode);
         }
-    }, [activeTab, teamData]);
+    }, [activeTab, teamData, activeRole, isQualifed]);
 
     const handleRun = async () => {
         setIsRunning(true);
@@ -39,9 +39,8 @@ const Round2Page = ({ teamData, socket }) => {
         setResults(null);
 
         try {
-            // Run against first public test case
             const testCase = currentProblem.testCases[0];
-            const res = await axios.post('http://localhost:5000/api/execute', {
+            const res = await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/execute`, {
                 language: currentProblem.language,
                 code: code,
                 stdin: testCase.input
@@ -65,7 +64,7 @@ const Round2Page = ({ teamData, socket }) => {
 
         for (const tc of currentProblem.testCases) {
             try {
-                const res = await axios.post('http://localhost:5000/api/execute', {
+                const res = await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/execute`, {
                     language: currentProblem.language,
                     code: code,
                     stdin: tc.input
@@ -80,18 +79,24 @@ const Round2Page = ({ teamData, socket }) => {
         }
 
         if (allPassed) {
-            // Notify server of success
             socket.emit('solveRound2Problem', { teamId: teamData._id, problemIndex: activeTab, code });
-            setResults({ success: true, message: "CONGRATULATIONS! All Test Cases Passed." });
+            setResults({ success: true, message: "CONGRATULATIONS! MISSION_CLEARED." });
         } else {
-            setResults({ success: false, message: "Failing on some test cases. Coordination is key!" });
+            setResults({ success: false, message: "CRITICAL_FAILURE: LOGIC_MISMATCH" });
         }
         setIsRunning(false);
     };
 
-    // Visibility logic
-    const isEyes = role === 'instructor';
-    const isHands = role === 'defuser';
+    if (!isQualifed) {
+        return (
+            <div className="game-over" style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#ff3c3c' }}>
+                <Lock size={80} style={{ marginBottom: '2rem' }} />
+                <h1 style={{ fontSize: '3rem', fontWeight: 900 }}>ACCESS_DENIED</h1>
+                <p style={{ color: '#666', marginTop: '1rem' }}>Only teams that defused the bomb in Round 1 can enter the Blind Trust Arena.</p>
+                <button className="btn-squid" onClick={() => setCurrentView('dashboard')} style={{ marginTop: '2rem' }}>RETURN_TO_LOBBY</button>
+            </div>
+        );
+    }
 
     return (
         <div className="round2-portal">
@@ -122,43 +127,39 @@ const Round2Page = ({ teamData, socket }) => {
                 <div className="portal-header">
                     <div className="active-problem-title">
                         <h2>{currentProblem?.title}</h2>
-                        <div className="difficulty-badge">HARD</div>
+                        <div className="difficulty-badge">CLASS_A</div>
                     </div>
                     <div className="role-indicator">
-                        {role === 'instructor' ? <Eye /> : <Lock />}
-                        <span>ROLE: {role?.toUpperCase()}</span>
+                        {activeRole === 'blind_coder' ? <EyeOff /> : <Eye />}
+                        <span>ROLE: {activeRole === 'blind_coder' ? 'BLIND_CODER' : 'WHISPERER'}</span>
                     </div>
                 </div>
 
                 <div className="portal-content-grid">
-                    {/* PROBLEM DESCRIPTION (EYES ONLY) */}
-                    <div className={`description-pane ${isHands ? 'blurred' : ''}`}>
+                    <div className="description-pane" style={{
+                        filter: activeRole === 'blind_coder' ? 'blur(8px)' : 'none',
+                        pointerEvents: activeRole === 'blind_coder' ? 'none' : 'auto',
+                        opacity: activeRole === 'blind_coder' ? 0.5 : 1
+                    }}>
                         <h3><Terminal size={18} /> PROBLEM_SPEC</h3>
                         <div className="p-desc">
                             {currentProblem?.description}
                         </div>
                         <div className="bug-clue-box">
-                            <h4>BUGGY_SOURCE_CLUE</h4>
-                            <p>Initial state has logical flaws. Guide the Machinist to correct it line by line.</p>
+                            <h4>WHISPER_MARKER</h4>
+                            <p>Guide your partner. Use precise coordinates. Do not reveal the exact code.</p>
                         </div>
-                        {isHands && (
-                            <div className="blind-overlay">
-                                <Lock size={48} />
-                                <p>BLIND DEBUGGING: ONLY THE EYES CAN SEE THE BUG</p>
-                            </div>
-                        )}
                     </div>
 
-                    {/* CODE EDITOR (HANDS ONLY) */}
                     <div className="editor-pane">
                         <div className="editor-toolbar">
                             <div className="lang-tag">{currentProblem?.language}</div>
                             <div className="editor-actions">
-                                <button className="run-btn" onClick={handleRun} disabled={isRunning}>
-                                    <Play size={16} /> RUN
+                                <button className="run-btn" onClick={handleRun} disabled={isRunning || activeRole === 'whisperer'}>
+                                    <Play size={16} /> TEST_RUN
                                 </button>
-                                <button className="submit-btn" onClick={handleSubmit} disabled={isRunning}>
-                                    <Send size={16} /> SUBMIT
+                                <button className="submit-btn" onClick={handleSubmit} disabled={isRunning || activeRole === 'whisperer'}>
+                                    <Send size={16} /> FINAL_SUBMIT
                                 </button>
                             </div>
                         </div>
@@ -166,23 +167,24 @@ const Round2Page = ({ teamData, socket }) => {
                         <div className="editor-wrapper">
                             <Editor
                                 value={code}
-                                onValueChange={code => isHands ? setCode(code) : null}
+                                onValueChange={code => activeRole === 'blind_coder' ? setCode(code) : null}
                                 highlight={code => highlight(code, languages[currentProblem?.language] || languages.js)}
                                 padding={20}
                                 className="code-editor"
+                                readOnly={activeRole === 'whisperer'}
                                 style={{
                                     fontFamily: '"Fira code", "Fira Mono", monospace',
                                     fontSize: 14,
-                                    minHeight: '100%'
+                                    minHeight: '100%',
+                                    opacity: activeRole === 'whisperer' ? 0.8 : 1,
+                                    pointerEvents: activeRole === 'whisperer' ? 'none' : 'auto'
                                 }}
-                                disabled={isEyes}
                             />
-                            {isEyes && <div className="readonly-overlay">READ_ONLY / CONSULT ONLY</div>}
                         </div>
 
                         <div className="console-area">
                             <div className="console-header">
-                                <span>CONSOLE</span>
+                                <span>TERMINAL_OUTPUT</span>
                                 {results && (
                                     <span className={`res-tag ${results.success ? 'pass' : 'fail'}`}>
                                         {results.message}
@@ -190,7 +192,7 @@ const Round2Page = ({ teamData, socket }) => {
                                 )}
                             </div>
                             <div className="console-output">
-                                {output || "Waiting for execution..."}
+                                {output || "Standby for signal..."}
                             </div>
                         </div>
                     </div>

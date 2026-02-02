@@ -1,10 +1,10 @@
 import React from 'react';
-import { Bomb, Shield } from 'lucide-react';
+import { Eye, Keyboard } from 'lucide-react';
 
-const RoleSelect = ({
+const RoleSelectRound2 = ({
     teamData,
     selectRole,
-    startRound1,
+    startRound2,
     setCurrentView,
     memberIdentifier,
     setMemberIdentifier
@@ -13,7 +13,7 @@ const RoleSelect = ({
         return (
             <div className="lobby-view squid-container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                 <img src="/bg.png" className="hero-bg-image" alt="background" />
-                <h2 className="pink-text" style={{ fontSize: '2.5rem', marginBottom: '3rem', zIndex: 10 }}>IDENTIFY_OPERATIVE</h2>
+                <h2 className="pink-text" style={{ fontSize: '2.5rem', marginBottom: '3rem', zIndex: 10 }}>IDENTIFY_OPERATIVE_R2</h2>
                 <div className="role-cards" style={{ display: 'flex', gap: '2rem', zIndex: 10 }}>
                     <div className="role-card"
                         onClick={() => setMemberIdentifier('member1')}
@@ -35,55 +35,55 @@ const RoleSelect = ({
         );
     }
 
-    const currentRole = teamData?.round1?.roleSelection?.[memberIdentifier];
+    const currentRole = teamData?.round2Progress?.roleSelection?.[memberIdentifier];
 
     return (
         <div className="lobby-view squid-container" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
             <img src="/bg.png" className="hero-bg-image" alt="background" />
 
-            <h2 className="green-text" style={{ fontSize: '2.5rem', marginBottom: '1rem', zIndex: 10 }}>
-                MISSION_READY: {memberIdentifier?.toUpperCase()}
+            <h2 className="pink-text" style={{ fontSize: '2.5rem', marginBottom: '1rem', zIndex: 10 }}>
+                PROTOCOL_R2: {memberIdentifier?.toUpperCase()}
             </h2>
-            <p style={{ color: '#888', marginBottom: '3rem', zIndex: 10 }}>SELECT YOUR ROLE FOR THE ARENA</p>
+            <p style={{ color: '#888', marginBottom: '3rem', zIndex: 10 }}>SELECT YOUR ROLE FOR BLIND TRUST</p>
 
             <div className="role-cards" style={{ display: 'flex', gap: '2rem', zIndex: 10 }}>
                 <div className="role-card"
-                    onClick={() => selectRole('defuser')}
+                    onClick={() => selectRole('blind_coder')}
                     style={{
-                        background: currentRole === 'defuser' ? 'rgba(0, 255, 102, 0.1)' : '#111',
-                        border: currentRole === 'defuser' ? '2px solid #00ff66' : '2px solid #333',
+                        background: currentRole === 'blind_coder' ? 'rgba(255, 60, 60, 0.1)' : '#111',
+                        border: currentRole === 'blind_coder' ? '2px solid var(--squid-pink)' : '2px solid #333',
                         padding: '3rem', width: '320px', textAlign: 'center', cursor: 'pointer',
                         transition: 'all 0.3s', borderRadius: '20px',
-                        transform: currentRole === 'defuser' ? 'scale(1.05)' : 'scale(1)'
+                        transform: currentRole === 'blind_coder' ? 'scale(1.05)' : 'scale(1)'
                     }}>
-                    <Bomb size={64} color="#00ff66" />
-                    <h3 style={{ marginTop: '1.5rem', mb: '0.5rem' }}>BOMB_DEFUSER</h3>
-                    <p style={{ fontSize: '0.7rem', color: '#666', mb: '1rem' }}>SITS AT THE BOMB CHASSIS</p>
-                    {currentRole === 'defuser' && <p className="green-text" style={{ fontSize: '0.8rem', marginTop: '1rem', fontWeight: 900 }}>ROLE_ASSIGNED</p>}
+                    <Keyboard size={64} color="var(--squid-pink)" />
+                    <h3 style={{ marginTop: '1.5rem', mb: '0.5rem' }}>BLIND_CODER</h3>
+                    <p style={{ fontSize: '0.7rem', color: '#666', mb: '1rem' }}>HANDS ON KEYBOARD. EYES SHUT.</p>
+                    {currentRole === 'blind_coder' && <p className="pink-text" style={{ fontSize: '0.8rem', marginTop: '1rem', fontWeight: 900 }}>ROLE_ASSIGNED</p>}
                 </div>
 
                 <div className="role-card"
-                    onClick={() => selectRole('giver')}
+                    onClick={() => selectRole('whisperer')}
                     style={{
-                        background: currentRole === 'giver' ? 'rgba(0, 255, 102, 0.1)' : '#111',
-                        border: currentRole === 'giver' ? '2px solid #00ff66' : '2px solid #333',
+                        background: currentRole === 'whisperer' ? 'rgba(255, 60, 60, 0.1)' : '#111',
+                        border: currentRole === 'whisperer' ? '2px solid var(--squid-pink)' : '2px solid #333',
                         padding: '3rem', width: '320px', textAlign: 'center', cursor: 'pointer',
                         transition: 'all 0.3s', borderRadius: '20px',
-                        transform: currentRole === 'giver' ? 'scale(1.05)' : 'scale(1)'
+                        transform: currentRole === 'whisperer' ? 'scale(1.05)' : 'scale(1)'
                     }}>
-                    <Shield size={64} color="#00ff66" />
-                    <h3 style={{ marginTop: '1.5rem', mb: '0.5rem' }}>INSTRUCTION_GIVER</h3>
-                    <p style={{ fontSize: '0.7rem', color: '#666', mb: '1rem' }}>PROVIDES INTEL FROM MANUAL</p>
-                    {currentRole === 'giver' && <p className="green-text" style={{ fontSize: '0.8rem', marginTop: '1rem', fontWeight: 900 }}>ROLE_ASSIGNED</p>}
+                    <Eye size={64} color="var(--squid-pink)" />
+                    <h3 style={{ marginTop: '1.5rem', mb: '0.5rem' }}>LOGIC_WHISPERER</h3>
+                    <p style={{ fontSize: '0.7rem', color: '#666', mb: '1rem' }}>SEES THE TRUTH. GUIDES THE HAND.</p>
+                    {currentRole === 'whisperer' && <p className="pink-text" style={{ fontSize: '0.8rem', marginTop: '1rem', fontWeight: 900 }}>ROLE_ASSIGNED</p>}
                 </div>
             </div>
 
             <div style={{ display: 'flex', gap: '1rem', zIndex: 10 }}>
                 <button className="btn btn-secondary" onClick={() => setMemberIdentifier(null)} style={{ marginTop: '3rem', padding: '1rem 3rem', background: '#333', color: '#fff', fontWeight: 900 }}>CHANGE IDENTITY</button>
-                <button className="btn btn-primary" onClick={startRound1} style={{ marginTop: '3rem', padding: '1rem 4rem', background: '#00ff66', color: '#000', fontWeight: 900 }}>START MISSION</button>
+                <button className="btn btn-primary" onClick={startRound2} style={{ marginTop: '3rem', padding: '1rem 4rem', background: 'var(--squid-pink)', color: '#000', fontWeight: 900 }}>ENTER PORTAL</button>
             </div>
         </div>
     );
 };
 
-export default RoleSelect;
+export default RoleSelectRound2;

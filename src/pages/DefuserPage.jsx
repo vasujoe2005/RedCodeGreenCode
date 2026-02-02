@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AdvancedWirePuzzle, SymbolPuzzle, GridNumberPuzzle, MorseSymbolPuzzle, MemoryPuzzle } from '../components/Round1Puzzles';
 import { Heart, HeartOff } from 'lucide-react';
+import LeaderboardBoard from '../components/LeaderboardBoard';
 
 const DefuserPage = ({
     teamData,
@@ -11,7 +12,9 @@ const DefuserPage = ({
     setCurrentView,
     submitPuzzleResult,
     selectModule,
-    isRedCode
+    isRedCode,
+    gameState,
+    leaderboard
 }) => {
     const [timeLeft, setTimeLeft] = useState(600); // 10 minutes default
     const [showHeartBreak, setShowHeartBreak] = useState(false);
@@ -42,7 +45,7 @@ const DefuserPage = ({
             setTimeout(() => setShowHeartBreak(false), 2000);
         }
         setPrevLives(currentLives);
-    }, [teamData?.round1?.lives]);
+    }, [teamData?.round1?.lives, prevLives]);
 
     const formatTime = (seconds) => {
         const mins = Math.floor(seconds / 60);
@@ -50,8 +53,9 @@ const DefuserPage = ({
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    if (gameStatus === 'exploded' || timeLeft === 0) return <div className="game-over" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#ff3c3c' }}><h1>BOMB EXPLODED!</h1></div>;
-    if (gameStatus === 'completed') return <div className="game-over" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#00ff66' }}><h1>BOMB DEFUSED!</h1></div>;
+    if (gameStatus === 'exploded' || timeLeft === 0 || gameStatus === 'completed') {
+        return <LeaderboardBoard leaderboard={leaderboard} currentTeamName={teamData?.teamName} setCurrentView={setCurrentView} />;
+    }
 
     const renderPuzzle = (puzzle, index) => {
         const props = {
@@ -72,23 +76,7 @@ const DefuserPage = ({
     const activeIndex = teamData?.round1?.selectedModuleIndex ?? -1;
 
     return (
-        <div className="arena-floor" onClick={(e) => {
-            // Only deselect if clicking the background itself, not inside a module
-            if (e.target.classList.contains('arena-floor') || e.target.classList.contains('industrial-case')) {
-                selectModule(-1);
-            }
-        }}>
-            <div className="lives-display">
-                {[...Array(3)].map((_, i) => (
-                    <Heart
-                        key={i}
-                        fill={i < teamData?.round1?.lives ? "var(--squid-pink)" : "none"}
-                        color="var(--squid-pink)"
-                        size={32}
-                        className={i < teamData?.round1?.lives ? "heart-active" : "heart-depleted"}
-                    />
-                ))}
-            </div>
+        <div className={`arena-floor ${activeIndex !== -1 ? 'module-zoom-active' : ''}`}>
             <AnimatePresence mode="wait">
                 {!isBoxOpen ? (
                     <motion.div key="box" className="bomb-box-outer" exit={{ scale: 1.1, opacity: 0, rotateX: -60, y: -100 }} transition={{ duration: 0.8 }}>
@@ -107,6 +95,16 @@ const DefuserPage = ({
                             <div className="case-header">
                                 <span className="serial-no">Z-22286-WTYK</span>
                                 <div className="status-lights">
+                                    <div className="lives-mini-display" style={{ display: 'flex', gap: '8px', marginRight: '20px' }}>
+                                        {[...Array(3)].map((_, i) => (
+                                            <Heart
+                                                key={i}
+                                                fill={i < teamData?.round1?.lives ? "var(--squid-pink)" : "none"}
+                                                color="var(--squid-pink)"
+                                                size={18}
+                                            />
+                                        ))}
+                                    </div>
                                     <div className="light green"></div>
                                     <div className="light red pulse" style={{ width: '15px', height: '15px', borderRadius: '50%', background: '#ff3c3c' }}></div>
                                 </div>
@@ -116,9 +114,18 @@ const DefuserPage = ({
                                     <div
                                         key={i}
                                         className={`puzzle ${i === activeIndex ? 'active-module' : ''} ${puzzle.solved ? 'puzzle-done' : ''}`}
-                                        onClick={() => !puzzle.solved && selectModule(i)}
+                                        onClick={(e) => {
+                                            if (gameState.round1.isPaused || isRedCode) return;
+                                            if (!puzzle.solved) {
+                                                e.stopPropagation();
+                                                selectModule(i); // Always select, never unselect
+                                            }
+                                        }}
                                         data-id={`MODULE_${i + 1}`}
-                                        style={{ cursor: puzzle.solved ? 'default' : 'pointer' }}
+                                        style={{
+                                            cursor: puzzle.solved ? 'default' : (activeIndex === i ? 'default' : 'zoom-in'),
+                                            pointerEvents: (gameState.round1.isPaused || isRedCode) ? 'none' : 'auto'
+                                        }}
                                     >
                                         {puzzle.solved ? (
                                             <div className="module-solved-overlay">
@@ -163,8 +170,6 @@ const DefuserPage = ({
                     </motion.div>
                 )}
             </AnimatePresence>
-            {isRedCode && <div className="red-overlay"><div className="freeze-text">FREEZE</div></div>}
-
             <AnimatePresence>
                 {showHeartBreak && (
                     <motion.div
@@ -189,7 +194,7 @@ const DefuserPage = ({
                     </motion.div>
                 )}
             </AnimatePresence>
-        </div>
+        </div >
     );
 };
 

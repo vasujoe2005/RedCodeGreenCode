@@ -13,6 +13,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import Dashboard from './pages/Dashboard';
 import RoleSelect from './pages/RoleSelect';
+import RoleSelectRound2 from './pages/RoleSelectRound2';
 import DefuserPage from './pages/DefuserPage';
 import InstructorPage from './pages/InstructorPage';
 import Round2Page from './pages/Round2Page';
@@ -24,11 +25,17 @@ const socket = io(API_URL);
 const App = () => {
   const [activeDashboard, setActiveDashboard] = useState(null); // 'user' or 'admin'
   const [isRedCode, setIsRedCode] = useState(false);
+  const [gameState, setGameState] = useState({
+    status: 'GREEN',
+    round1: { isStarted: false, isPaused: false },
+    round2: { isStarted: false, isPaused: false }
+  });
   const [teamData, setTeamData] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
   const [currentView, setCurrentView] = useState('landing');
   const [authStep, setAuthStep] = useState('initial');
   const [authTeamName, setAuthTeamName] = useState('');
+  const [memberIdentifier, setMemberIdentifier] = useState(null); // 'member1' or 'member2'
   const [error, setError] = useState('');
 
   // Bomb State
@@ -36,11 +43,12 @@ const App = () => {
   const [unscrewed, setUnscrewed] = useState([false, false, false, false]);
 
   const handleLogout = () => {
-    localStorage.removeItem('rcgc_session');
+    sessionStorage.removeItem('rcgc_session');
     setActiveDashboard(null);
     setTeamData(null);
     setCurrentView('landing');
     setAuthStep('initial');
+    setMemberIdentifier(null);
     setAuthTeamName('');
     setIsBoxOpen(false);
     setUnscrewed([false, false, false, false]);
@@ -88,7 +96,7 @@ const App = () => {
         if (data.isAdmin) {
           setActiveDashboard('admin');
           const session = { type: 'admin', view: 'admin' };
-          localStorage.setItem('rcgc_session', JSON.stringify(session));
+          sessionStorage.setItem('rcgc_session', JSON.stringify(session));
         } else {
           setActiveDashboard('user');
           const tData = { ...data.player, teamId: data.player._id, round1: data.player.round1Progress };
@@ -132,7 +140,7 @@ const App = () => {
         socket.emit('joinTeam', tData.teamId);
         setCurrentView('dashboard');
         const session = { type: 'user', teamData: tData, view: 'dashboard' };
-        localStorage.setItem('rcgc_session', JSON.stringify(session));
+        sessionStorage.setItem('rcgc_session', JSON.stringify(session));
         setAuthStep('initial');
       } else {
         const data = await resp.json();
@@ -150,9 +158,16 @@ const App = () => {
   };
 
   const selectRole = (role) => {
-    if (!teamData) return;
+    if (!teamData || !memberIdentifier) return;
     const teamId = teamData.teamId || teamData._id;
-    socket.emit('selectRole', { teamId, memberIndex: 0, role });
+    socket.emit('selectRole', { teamId, memberIdentifier, role });
+    setCurrentView('round1');
+  };
+
+  const selectRoleRound2 = (role) => {
+    if (!teamData || !memberIdentifier) return;
+    const teamId = teamData.teamId || teamData._id;
+    socket.emit('selectRoleRound2', { teamId, memberIdentifier, role });
   };
 
   const startRound1 = () => {
@@ -187,7 +202,8 @@ const App = () => {
   };
 
   useEffect(() => {
-    const saved = localStorage.getItem('rcgc_session');
+    fetchLeaderboard();
+    const saved = sessionStorage.getItem('rcgc_session');
     if (saved) {
       const session = JSON.parse(saved);
       if (session.type === 'admin') {
@@ -196,6 +212,7 @@ const App = () => {
       } else {
         setActiveDashboard('user');
         setTeamData(session.teamData);
+        setMemberIdentifier(session.memberIdentifier);
         setCurrentView(session.view || 'dashboard');
         socket.emit('joinTeam', session.teamData.teamId);
       }
@@ -207,30 +224,46 @@ const App = () => {
       const session = {
         type: activeDashboard,
         teamData,
-        view: currentView
+        view: currentView,
+        memberIdentifier
       };
-      localStorage.setItem('rcgc_session', JSON.stringify(session));
+      sessionStorage.setItem('rcgc_session', JSON.stringify(session));
     }
-  }, [currentView, teamData, activeDashboard]);
+  }, [currentView, teamData, activeDashboard, memberIdentifier]);
 
   useEffect(() => {
     socket.on('gameUpdate', (state) => {
+      setGameState(state);
       setIsRedCode(state.status === 'RED');
     });
     socket.on('teamUpdate', (data) => {
-      setTeamData({ ...data, teamId: data._id, round1: data.round1Progress });
+      setTeamData(prev => {
+        const newData = { ...data, teamId: data._id, round1: data.round1Progress };
+
+        // Only reset box visuals if this is a BRAND NEW mission start (startTime changed)
+        // or if we are currently closed and the server says we've solved something
+        const isFreshStart = newData.round1.startTime !== prev?.round1?.startTime;
+        const anySolved = newData.round1.puzzles.some(p => p.solved);
+
+        if (isFreshStart && newData.round1.status === 'active' && !anySolved) {
+          setIsBoxOpen(false);
+          setUnscrewed([false, false, false, false]);
+        } else if (anySolved) {
+          setIsBoxOpen(true);
+        }
+
+        return newData;
+      });
     });
-    socket.on('adminLeaderboardUpdate', () => fetchLeaderboard());
+    socket.on('adminLeaderboardUpdate', (data) => {
+      setLeaderboard(data);
+    });
     return () => {
       socket.off('gameUpdate');
       socket.off('teamUpdate');
       socket.off('adminLeaderboardUpdate');
     };
   }, []);
-
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [currentView]);
 
   return (
     <>
@@ -263,8 +296,32 @@ const App = () => {
 
       {/* USER DASHBOARD & GAMES */}
       {activeDashboard === 'user' && (
-        <>
-          {currentView === 'dashboard' && <Dashboard setCurrentView={setCurrentView} />}
+        <div className={`player-workspace ${isRedCode ? 'red-code-active' : ''} ${((currentView === 'round1' && gameState.round1.isPaused) || (currentView === 'round2' && gameState.round2.isPaused)) ? 'game-paused-active' : ''}`}>
+          {/* RED LIGHT OVERLAY */}
+          {isRedCode && (
+            <div className="red-overlay">
+              <div className="red-content">
+                <div className="red-pulse-bg"></div>
+                <h1 className="red-warning-text">RED_LIGHT: MOTION_STOPPED</h1>
+                <p>Mission is currently under red-code lockdown. Wait for Green Signal.</p>
+                <div className="glitch-scanner"></div>
+              </div>
+            </div>
+          )}
+
+          {/* PAUSE OVERLAY */}
+          {((currentView === 'round1' && gameState.round1.isPaused) || (currentView === 'round2' && gameState.round2.isPaused)) && (
+            <div className="pause-overlay">
+              <div className="pause-content">
+                <Lock size={64} className="pause-icon" />
+                <h1>MISSION_PAUSED</h1>
+                <p>THE GAME HAS BEEN PAUSED BY THE ADMINISTRATOR.</p>
+                <p style={{ fontSize: '0.8rem', opacity: 0.6, marginTop: '1rem' }}>Stand by for mission resumption.</p>
+              </div>
+            </div>
+          )}
+
+          {currentView === 'dashboard' && <Dashboard setCurrentView={setCurrentView} gameState={gameState} />}
           {currentView === 'role_select' && (
             <RoleSelect
               activeDashboard={activeDashboard}
@@ -274,11 +331,26 @@ const App = () => {
               selectRole={selectRole}
               startRound1={startRound1}
               setCurrentView={setCurrentView}
+              gameState={gameState}
+              memberIdentifier={memberIdentifier}
+              setMemberIdentifier={setMemberIdentifier}
             />
           )}
+
+          {currentView === 'role_select_r2' && (
+            <RoleSelectRound2
+              teamData={teamData}
+              selectRole={selectRoleRound2}
+              startRound2={() => setCurrentView('round2')}
+              setCurrentView={setCurrentView}
+              memberIdentifier={memberIdentifier}
+              setMemberIdentifier={setMemberIdentifier}
+            />
+          )}
+
           {currentView === 'round1' && (
             <>
-              {teamData?.round1?.roleSelection?.member1 === 'defuser' ? (
+              {teamData?.round1?.roleSelection?.[memberIdentifier] === 'defuser' ? (
                 <DefuserPage
                   teamData={teamData}
                   isBoxOpen={isBoxOpen}
@@ -288,6 +360,8 @@ const App = () => {
                   submitPuzzleResult={submitPuzzleResult}
                   selectModule={selectModule}
                   isRedCode={isRedCode}
+                  gameState={gameState}
+                  leaderboard={leaderboard}
                 />
               ) : (
                 <InstructorPage
@@ -295,6 +369,8 @@ const App = () => {
                   setCurrentView={setCurrentView}
                   selectModule={selectModule}
                   isRedCode={isRedCode}
+                  gameState={gameState}
+                  leaderboard={leaderboard}
                 />
               )}
             </>
@@ -303,10 +379,13 @@ const App = () => {
             <Round2Page
               teamData={teamData}
               socket={socket}
+              memberIdentifier={memberIdentifier}
               setCurrentView={setCurrentView}
+              gameState={gameState}
+              leaderboard={leaderboard}
             />
           )}
-        </>
+        </div>
       )}
 
       {/* ADMIN DASHBOARD */}
@@ -317,6 +396,7 @@ const App = () => {
           handleLogout={handleLogout}
           socket={socket}
           isRedCode={isRedCode}
+          gameState={gameState}
         />
       )}
     </>

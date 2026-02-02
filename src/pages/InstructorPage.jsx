@@ -2,12 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HeartOff } from 'lucide-react';
 import FullManual from '../components/FullManual';
+import LeaderboardBoard from '../components/LeaderboardBoard';
 
 const InstructorPage = ({
     teamData,
     setCurrentView,
     selectModule,
-    isRedCode
+    isRedCode,
+    gameState,
+    leaderboard
 }) => {
     const [timeLeft, setTimeLeft] = useState(600);
     const [showHeartBreak, setShowHeartBreak] = useState(false);
@@ -46,8 +49,9 @@ const InstructorPage = ({
         return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
     };
 
-    if (gameStatus === 'exploded' || timeLeft === 0) return <div className="game-over" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#ff3c3c' }}><h1>BOMB EXPLODED!</h1></div>;
-    if (gameStatus === 'completed') return <div className="game-over" style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000', color: '#00ff66' }}><h1>BOMB DEFUSED!</h1></div>;
+    if (gameStatus === 'exploded' || timeLeft === 0 || gameStatus === 'completed') {
+        return <LeaderboardBoard leaderboard={leaderboard} currentTeamName={teamData?.teamName} setCurrentView={setCurrentView} />;
+    }
 
     return (
         <div className="arena-floor">
@@ -84,7 +88,6 @@ const InstructorPage = ({
                 )}
             </AnimatePresence>
 
-            {isRedCode && <div className="red-overlay"><div className="freeze-text">FREEZE</div></div>}
         </div>
     );
 };

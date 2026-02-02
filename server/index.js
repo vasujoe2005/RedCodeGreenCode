@@ -12,10 +12,10 @@ const server = http.createServer(app);
 
 // CORS and Socket.IO configuration
 const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  'https://redcode-greencode.vercel.app',
-  process.env.APPLICATION_URL
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://redcode-greencode.vercel.app',
+    process.env.APPLICATION_URL
 ].filter(Boolean);
 
 const io = new Server(server, {
@@ -44,6 +44,7 @@ const playerSchema = new mongoose.Schema({
         lives: { type: Number, default: 3 },
         status: { type: String, default: 'active' },
         startTime: { type: Date },
+        endTime: { type: Date },
         roleSelection: { member1: String, member2: String },
         puzzles: [{
             puzzleType: String,
@@ -58,14 +59,17 @@ const playerSchema = new mongoose.Schema({
             description: String,
             buggyCode: String,
             language: String,
-            solutionId: String, // Regex or key fix to also check against
+            solutionId: String,
             testCases: [{ input: String, expected: String, isPublic: Boolean }],
             solved: { type: Boolean, default: false },
             attempts: { type: Number, default: 0 },
             score: { type: Number, default: 0 }
         }],
+        roleSelection: { member1: String, member2: String },
         currentProblemIndex: { type: Number, default: 0 },
-        status: { type: String, default: 'waiting' }
+        status: { type: String, default: 'waiting' },
+        startTime: { type: Date },
+        endTime: { type: Date }
     },
     round2Marks: { bugId: { type: Number, default: 0 }, coord: { type: Number, default: 0 } },
     round2ManualScore: { type: Number, default: 0 },
@@ -219,6 +223,7 @@ app.post('/api/register', async (req, res) => {
             },
             round2Progress: {
                 problems: generateRound2(),
+                roleSelection: { member1: null, member2: null },
                 status: 'waiting'
             }
         };
@@ -259,25 +264,211 @@ app.get('/api/leaderboard', async (req, res) => {
 });
 
 // --- SOCKETS ---
-let globalGameState = { status: 'GREEN', isStarted: false };
+let globalGameState = {
+    status: 'GREEN',
+    round1: { isStarted: false, isPaused: false },
+    round2: { isStarted: false, isPaused: false }
+};
+
+const getSortedPlayers = async () => {
+    let players = useMemoryFallback ? [...memoryPlayers] : await Player.find({});
+
+    return players.sort((a, b) => {
+        // 1. Alive status (exploded is last)
+        const aAlive = a.round1Progress?.status !== 'exploded';
+        const bAlive = b.round1Progress?.status !== 'exploded';
+        if (aAlive !== bAlive) return aAlive ? -1 : 1;
+
+        // 2. Completed / Solved count
+        const aSolved = a.round1Progress?.puzzles?.filter(p => p.solved).length || 0;
+        const bSolved = b.round1Progress?.puzzles?.filter(p => p.solved).length || 0;
+        if (aSolved !== bSolved) return bSolved - aSolved;
+
+        // 3. Time taken (if started)
+        const aTime = (a.round1Progress?.endTime && a.round1Progress?.startTime)
+            ? (new Date(a.round1Progress.endTime) - new Date(a.round1Progress.startTime))
+            : (a.round1Progress?.startTime ? (Date.now() - new Date(a.round1Progress.startTime)) : Infinity);
+
+        const bTime = (b.round1Progress?.endTime && b.round1Progress?.startTime)
+            ? (new Date(b.round1Progress.endTime) - new Date(b.round1Progress.startTime))
+            : (b.round1Progress?.startTime ? (Date.now() - new Date(b.round1Progress.startTime)) : Infinity);
+
+        if (aTime !== bTime) return aTime - bTime;
+
+        // 4. Hearts/Lives
+        const aLives = a.round1Progress?.lives || 0;
+        const bLives = b.round1Progress?.lives || 0;
+        return bLives - aLives;
+    });
+};
+
 io.on('connection', (socket) => {
     socket.emit('gameUpdate', globalGameState);
     socket.on('joinTeam', (teamId) => socket.join(teamId));
+
     socket.on('toggleRedLight', (data) => {
         globalGameState.status = data.status;
         io.emit('gameUpdate', globalGameState);
     });
 
-    socket.on('selectRole', async ({ teamId, memberIndex, role }) => {
+    // ADMIN CONTROLS
+    socket.on('adminAction', async ({ round, action }) => {
+        console.log(`[ADMIN_ACTION] Round: ${round}, Action: ${action}`);
+        const rKey = round === 1 ? 'round1' : 'round2';
+
+        if (action === 'start') {
+            globalGameState[rKey].isStarted = true;
+            globalGameState[rKey].isPaused = false;
+        } else if (action === 'pause') {
+            globalGameState[rKey].isPaused = true;
+        } else if (action === 'resume') {
+            globalGameState[rKey].isPaused = false;
+        } else if (action === 'stop') {
+            globalGameState[rKey].isStarted = false;
+            globalGameState[rKey].isPaused = false;
+            io.emit('gameUpdate', globalGameState);
+
+            // End the round for everyone
+            const players = await (useMemoryFallback ? memoryPlayers : Player.find({}));
+            for (let p of players) {
+                const progress = round === 1 ? p.round1Progress : p.round2Progress;
+                if (progress.status === 'active' || progress.status === 'waiting') {
+                    progress.status = 'completed';
+                    progress.endTime = new Date();
+
+                    // Award points for what they finished if stopping early
+                    if (round === 1) {
+                        const solvedCount = progress.puzzles.filter(pz => pz.solved).length;
+                        p.score = (p.score || 0) + (solvedCount * 100);
+                        if (solvedCount >= progress.puzzles.length) p.score += 200;
+                    }
+                }
+                if (!useMemoryFallback) {
+                    await Player.findByIdAndUpdate(p._id, {
+                        [round === 1 ? 'round1Progress' : 'round2Progress']: progress,
+                        score: p.score
+                    });
+                }
+            }
+        } else if (action === 'restart') {
+            const now = new Date();
+            if (round === 1) {
+                if (useMemoryFallback) {
+                    memoryPlayers.forEach(p => {
+                        p.round1Progress = {
+                            puzzles: generatePuzzles(),
+                            currentPuzzle: 0,
+                            selectedModuleIndex: -1,
+                            roleSelection: p.round1Progress.roleSelection, // Keep roles or reset? User said "reset games", usually implies keep roles so they don't have to select again if it's a quick restart
+                            lives: 3,
+                            status: 'active',
+                            startTime: now,
+                            endTime: null
+                        };
+                        p.score = 0;
+                    });
+                } else {
+                    const players = await Player.find({});
+                    for (let p of players) {
+                        p.round1Progress = {
+                            puzzles: generatePuzzles(),
+                            currentPuzzle: 0,
+                            selectedModuleIndex: -1,
+                            roleSelection: p.round1Progress.roleSelection,
+                            lives: 3,
+                            status: 'active',
+                            startTime: now,
+                            endTime: null
+                        };
+                        p.score = 0;
+                        await p.save();
+                    }
+                }
+            } else if (round === 2) {
+                if (useMemoryFallback) {
+                    memoryPlayers.forEach(p => {
+                        p.round2Progress = {
+                            problems: generateRound2(),
+                            status: 'active',
+                            startTime: now,
+                            endTime: null
+                        };
+                    });
+                } else {
+                    const players = await Player.find({});
+                    for (let p of players) {
+                        p.round2Progress = {
+                            problems: generateRound2(),
+                            status: 'active',
+                            startTime: now,
+                            endTime: null
+                        };
+                        await p.save();
+                    }
+                }
+            }
+            globalGameState[rKey].isStarted = true;
+            globalGameState[rKey].isPaused = false;
+        }
+
+        io.emit('gameUpdate', globalGameState);
+        const allPlayers = useMemoryFallback ? memoryPlayers : await Player.find({});
+        for (let p of allPlayers) {
+            io.to(p._id.toString()).emit('teamUpdate', p);
+        }
+        const sorted = await getSortedPlayers();
+        io.emit('adminLeaderboardUpdate', sorted);
+    });
+
+    socket.on('selectRole', async ({ teamId, memberIdentifier, role }) => {
         const player = await findTeam(teamId);
         if (player) {
             if (!player.round1Progress.roleSelection) player.round1Progress.roleSelection = { member1: null, member2: null };
 
-            if (memberIndex === 0) player.round1Progress.roleSelection.member1 = role;
-            else player.round1Progress.roleSelection.member2 = role;
+            player.round1Progress.roleSelection[memberIdentifier] = role;
 
             if (!useMemoryFallback) await Player.findByIdAndUpdate(player._id, { 'round1Progress.roleSelection': player.round1Progress.roleSelection });
             io.to(teamId).emit('teamUpdate', player);
+        }
+    });
+
+    socket.on('selectRoleRound2', async ({ teamId, memberIdentifier, role }) => {
+        const player = await findTeam(teamId);
+        if (player) {
+            if (!player.round2Progress.roleSelection) player.round2Progress.roleSelection = { member1: null, member2: null };
+
+            player.round2Progress.roleSelection[memberIdentifier] = role;
+
+            if (!useMemoryFallback) await Player.findByIdAndUpdate(player._id, { 'round2Progress.roleSelection': player.round2Progress.roleSelection });
+            io.to(teamId).emit('teamUpdate', player);
+        }
+    });
+
+    socket.on('resetTeamBomb', async ({ teamId }) => {
+        const player = await findTeam(teamId);
+        if (player) {
+            player.round1Progress = {
+                puzzles: generatePuzzles(),
+                currentPuzzle: 0,
+                selectedModuleIndex: -1,
+                roleSelection: player.round1Progress.roleSelection, // Maintain role selection
+                lives: 3,
+                status: 'active',
+                startTime: new Date(),
+                endTime: null
+            };
+            player.score = 0; // Reset score for fresh start
+
+            if (!useMemoryFallback) {
+                await Player.findByIdAndUpdate(player._id, {
+                    round1Progress: player.round1Progress,
+                    score: player.score
+                });
+            }
+
+            io.to(player._id.toString()).emit('teamUpdate', player);
+            const sorted = await getSortedPlayers();
+            io.emit('adminLeaderboardUpdate', sorted);
         }
     });
 
@@ -302,21 +493,16 @@ io.on('connection', (socket) => {
     socket.on('submitPuzzle', async ({ teamId, puzzleIndex, success }) => {
         const player = await findTeam(teamId);
         if (player) {
-            console.log(`[PUZZLE_SUBMIT] Team: ${player.teamName}, Index: ${puzzleIndex}, Success: ${success}`);
-
             if (success) {
                 if (!player.round1Progress.puzzles[puzzleIndex].solved) {
                     player.round1Progress.puzzles[puzzleIndex].solved = true;
-                    player.round1Progress.selectedModuleIndex = -1; // Auto-zoom out on solve
-
-                    // Increment Score
+                    player.round1Progress.selectedModuleIndex = -1;
                     player.score = (player.score || 0) + 100;
 
-                    // Count how many are solved
                     const solvedCount = player.round1Progress.puzzles.filter(p => p.solved).length;
                     if (solvedCount >= player.round1Progress.puzzles.length) {
                         player.round1Progress.status = 'completed';
-                        // Bonus for completion?
+                        player.round1Progress.endTime = new Date();
                         player.score += 200;
                     }
                 }
@@ -324,14 +510,12 @@ io.on('connection', (socket) => {
                 player.round1Progress.lives -= 1;
                 if (player.round1Progress.lives <= 0) {
                     player.round1Progress.status = 'exploded';
+                    player.round1Progress.endTime = new Date();
                 } else {
-                    // Reset the specific module logic
                     const pType = player.round1Progress.puzzles[puzzleIndex].puzzleType;
-                    if (pType === 'grid_number') {
-                        player.round1Progress.puzzles[puzzleIndex].data = getRandomPattern();
-                    } else if (pType === 'memory') {
-                        player.round1Progress.puzzles[puzzleIndex].data = { displays: Array(4).fill(0).map(() => Math.floor(Math.random() * 3) + 1) };
-                    } else if (pType === 'advanced_wires') {
+                    if (pType === 'grid_number') player.round1Progress.puzzles[puzzleIndex].data = getRandomPattern();
+                    else if (pType === 'memory') player.round1Progress.puzzles[puzzleIndex].data = { displays: Array(4).fill(0).map(() => Math.floor(Math.random() * 3) + 1) };
+                    else if (pType === 'advanced_wires') {
                         const wireColors = ['red', 'blue', 'yellow', 'white', 'black'];
                         const config = Array(5).fill(0).map(() => wireColors[Math.floor(Math.random() * 5)]);
                         player.round1Progress.puzzles[puzzleIndex].data = { wires: config, solution: getAdvancedWireSolution(config) };
@@ -343,8 +527,8 @@ io.on('connection', (socket) => {
                 score: player.score
             });
             io.to(teamId).emit('teamUpdate', player);
-            const allPlayers = useMemoryFallback ? playersMemory : await Player.find({});
-            io.emit('adminLeaderboardUpdate', allPlayers);
+            const sorted = await getSortedPlayers();
+            io.emit('adminLeaderboardUpdate', sorted);
         }
     });
 
@@ -360,7 +544,8 @@ io.on('connection', (socket) => {
                 const allSolved = player.round2Progress.problems.every(p => p.solved);
                 if (allSolved) {
                     player.round2Progress.status = 'completed';
-                    player.score += 500; // Large bonus for finishing Round 2
+                    player.round2Progress.endTime = new Date();
+                    player.score += 500;
                 }
 
                 if (!useMemoryFallback) await Player.findByIdAndUpdate(player._id, {
@@ -368,8 +553,8 @@ io.on('connection', (socket) => {
                     score: player.score
                 });
                 io.to(teamId).emit('teamUpdate', player);
-                const allPlayers = useMemoryFallback ? playersMemory : await Player.find({});
-                io.emit('adminLeaderboardUpdate', allPlayers);
+                const sorted = await getSortedPlayers();
+                io.emit('adminLeaderboardUpdate', sorted);
             }
         }
     });
@@ -379,11 +564,6 @@ io.on('connection', (socket) => {
         if (player) {
             if (!player.round2Marks) player.round2Marks = { bugId: 0, coord: 0 };
             player.round2Marks[type] = value;
-
-            // Recalculate Total Score: Fixed (Round 1) + Coding (Round 2) + Manual (Round 2)
-            // Round 1 Score is already persisted in player.score but we should be careful
-            // For simplicity, let's just make score additive
-
             player.round2ManualScore = (player.round2Marks.bugId || 0) + (player.round2Marks.coord || 0);
 
             if (!useMemoryFallback) await Player.findByIdAndUpdate(player._id, {
@@ -391,26 +571,13 @@ io.on('connection', (socket) => {
                 round2ManualScore: player.round2ManualScore
             });
 
-            const allPlayers = useMemoryFallback ? playersMemory : await Player.find({});
-            io.emit('adminLeaderboardUpdate', allPlayers);
+            const sorted = await getSortedPlayers();
+            io.emit('adminLeaderboardUpdate', sorted);
         }
-    });
-
-    socket.on('adminStartEvent', () => {
-        globalGameState.isStarted = true;
-        io.emit('globalStateUpdate', globalGameState);
-        console.log('[ADMIN] Event Started');
     });
 
     socket.on('adminResetTeam', async (teamId) => {
-        let player = await findTeam(teamId); // This might find by ID
-        if (!player && useMemoryFallback) {
-            // If passed as name by mistake, handle it
-            player = playersMemory.find(p => p.teamName === teamId);
-        } else if (!player && !useMemoryFallback) {
-            player = await Player.findOne({ teamName: teamId });
-        }
-
+        let player = await Player.findOne({ teamName: teamId });
         if (player) {
             player.round1Progress = {
                 puzzles: generatePuzzles(),
@@ -419,13 +586,13 @@ io.on('connection', (socket) => {
                 roleSelection: { member1: null, member2: null },
                 lives: 3,
                 status: 'active',
-                startTime: null
+                startTime: null,
+                endTime: null
             };
-            if (!useMemoryFallback) await Player.findByIdAndUpdate(player._id, { round1Progress: player.round1Progress });
-            io.to(player._id || player.teamId).emit('teamUpdate', player);
-            const allPlayers = useMemoryFallback ? playersMemory : await Player.find({});
-            io.emit('adminLeaderboardUpdate', allPlayers);
-            console.log(`[ADMIN] Reset team: ${player.teamName}`);
+            await player.save();
+            io.to(player._id.toString()).emit('teamUpdate', player);
+            const sorted = await getSortedPlayers();
+            io.emit('adminLeaderboardUpdate', sorted);
         }
     });
 });

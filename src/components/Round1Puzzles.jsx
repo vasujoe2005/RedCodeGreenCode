@@ -5,7 +5,8 @@ export const AdvancedWirePuzzle = ({ onSolved, onFailed, data }) => {
     const [cut, setCut] = useState([]);
     const wires = data?.wires || ['red', 'blue', 'yellow', 'white', 'black'];
 
-    const handleCut = (i) => {
+    const handleCut = (e, i) => {
+        e.stopPropagation();
         if (cut.includes(i)) return;
         setCut([...cut, i]);
         i === data.solution ? onSolved() : onFailed();
@@ -14,7 +15,7 @@ export const AdvancedWirePuzzle = ({ onSolved, onFailed, data }) => {
     return (
         <div className="advanced-wires-bay">
             {wires.map((color, i) => (
-                <div key={i} className={`wire-track ${cut.includes(i) ? 'wire-cut' : ''}`} onClick={() => handleCut(i)}>
+                <div key={i} className={`wire-track ${cut.includes(i) ? 'wire-cut' : ''}`} onClick={(e) => handleCut(e, i)}>
                     <div className={`wire-strand ${color}`}></div>
                     <div className="wire-connector top"></div>
                     <div className="wire-connector bottom"></div>
@@ -42,6 +43,7 @@ export const AdvancedWireManual = () => (
 export const SymbolPuzzle = ({ onSolved, onFailed, data }) => {
     const [val, setVal] = useState('');
     const handleChange = (e) => {
+        e.stopPropagation();
         const current = e.target.value;
         setVal(current);
         if (data?.symbols && current === data.symbols[0]) onSolved();
@@ -53,6 +55,7 @@ export const SymbolPuzzle = ({ onSolved, onFailed, data }) => {
                 style={{ width: '100%', textAlign: 'center', fontSize: '1.5rem', marginBottom: 0 }}
                 value={val}
                 onChange={handleChange}
+                onClick={(e) => e.stopPropagation()}
                 placeholder="TYPE CODE"
             />
         </div>
@@ -75,7 +78,8 @@ export const GridNumberPuzzle = ({ onSolved, onFailed, data }) => {
         setStep(0);
     }, [data]);
 
-    const handleClick = (idx) => {
+    const handleClick = (e, idx) => {
+        e.stopPropagation();
         if (!data?.sequence) return;
         if (idx === data.sequence[step]) {
             if (step === data.sequence.length - 1) {
@@ -94,7 +98,8 @@ export const GridNumberPuzzle = ({ onSolved, onFailed, data }) => {
                 <div
                     key={i}
                     className={`grid-btn ${i === data?.startIndex ? 'green' : 'gray'}`}
-                    onClick={() => handleClick(i)}
+                    onClick={(e) => handleClick(e, i)}
+                    style={{ pointerEvents: 'auto', zIndex: 110, position: 'relative' }}
                 >
                     {step > 0 && data.sequence.slice(0, step).includes(i) && <div className="done-dot"></div>}
                 </div>
@@ -141,7 +146,7 @@ const SYMBOL_REPS = {
     'A': 'ᚦ', 'B': '◈', 'C': '⊞', 'D': '▼', 'E': '▣', 'F': '◬', 'G': '◍', 'H': '⌬', 'I': '⧉',
     'J': '⫽', 'K': '⋔', 'L': '⩔', 'M': '⩖', 'N': '⩓', 'O': '⚙', 'P': '⚯', 'Q': '⚔', 'R': '⚖',
     'S': '⚓', 'T': '☠', 'U': '☢', 'V': '⚛', 'W': '☣', 'X': '☤', 'Y': '☯', 'Z': '☸',
-    '1': '⫷', '2': '⫸', '3': '⫹', '4': '⫺', '5': '⫻', '6': '⫼', '7': '⫽', '8': '⫾', '9': '⫿', '0': '⬟'
+    '1': '✦', '2': '✥', '3': '✺', '4': '❈', '5': '❉', '6': '❊', '7': '❋', '8': '❂', '9': '⋆', '0': '⛬'
 };
 
 export const MorseSymbolPuzzle = ({ onSolved, onFailed, data }) => {
@@ -164,8 +169,14 @@ export const MorseSymbolPuzzle = ({ onSolved, onFailed, data }) => {
         <div className="morse-symbols-module">
             <div className="selectors-row">
                 {selections.map((sel, i) => (
-                    <div key={i} className="symbol-selector">
-                        <button className="scroll-btn up" onClick={(e) => { e.stopPropagation(); handleScroll(i, -1); }}>▲</button>
+                    <div key={i} className="symbol-selector" style={{ position: 'relative', zIndex: 200 - i }}>
+                        <button
+                            className="scroll-btn up"
+                            style={{ position: 'relative', zIndex: 250, cursor: 'pointer', height: '40px' }}
+                            onClick={(e) => { e.stopPropagation(); handleScroll(i, -1); }}
+                        >
+                            ▲
+                        </button>
 
                         <div className="morse-strip" title="SECURE_KEY">
                             {MORSE_MAP[targetWord[i]]}
@@ -173,17 +184,24 @@ export const MorseSymbolPuzzle = ({ onSolved, onFailed, data }) => {
 
                         <div
                             className="symbol-display"
+                            style={{ position: 'relative', zIndex: 150 }}
                             onClick={(e) => { e.stopPropagation(); handleScroll(i, 1); }}
                             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); handleScroll(i, -1); }}
                         >
                             {SYMBOL_REPS[SYMBOL_LABELS[sel]]}
                         </div>
-                        <button className="scroll-btn down" onClick={(e) => { e.stopPropagation(); handleScroll(i, 1); }}>▼</button>
+                        <button
+                            className="scroll-btn down"
+                            style={{ position: 'relative', zIndex: 250, cursor: 'pointer', height: '40px' }}
+                            onClick={(e) => { e.stopPropagation(); handleScroll(i, 1); }}
+                        >
+                            ▼
+                        </button>
                     </div>
                 ))}
             </div>
 
-            <button className="submit-btn-module" onClick={checkSolution}>VERIFY_SEQUENCE</button>
+            <button className="submit-btn-module" onClick={(e) => { e.stopPropagation(); checkSolution(); }}>VERIFY_SEQUENCE</button>
         </div>
     );
 };
@@ -231,8 +249,10 @@ export const MemoryPuzzle = ({ onSolved, onFailed, data }) => {
     const displays = data?.displays || [1, 2, 3, 1];
     const currentDisplay = displays[stage];
 
-    const handleClick = (label) => {
+    const handleClick = (e, label) => {
+        e.stopPropagation();
         let correctLabel = "";
+        // ... (rest of logic)
 
         if (stage === 0) {
             if (currentDisplay === 1) correctLabel = "1";
@@ -277,7 +297,7 @@ export const MemoryPuzzle = ({ onSolved, onFailed, data }) => {
             </div>
             <div className="memory-buttons">
                 {["1", "2", "3"].map(label => (
-                    <button key={label} className="mem-btn" onClick={() => handleClick(label)}>
+                    <button key={label} className="mem-btn" onClick={(e) => handleClick(e, label)}>
                         {label}
                     </button>
                 ))}
