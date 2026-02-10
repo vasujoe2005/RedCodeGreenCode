@@ -662,6 +662,15 @@ io.on('connection', (socket) => {
     });
 });
 
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    status: "UP",
+    service: "redcodegreencode-1",
+    timestamp: new Date().toISOString()
+  });
+});
+
+
 app.get('/api/leaderboard', async (req, res) => {
     try {
         const allPlayers = useMemoryFallback ? playersMemory : await Player.find({});
