@@ -14,6 +14,7 @@ const server = http.createServer(app);
 const allowedOrigins = [
     'http://localhost:5173',
     'http://localhost:3000',
+    'http://10.11.12.78:5173',
     'https://redcode-greencode.vercel.app',
     process.env.APPLICATION_URL
 ].filter(Boolean);
@@ -683,10 +684,16 @@ const PORT = process.env.PORT || 5000;
 mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 3000 })
     .then(() => {
         console.log('✅ Connected to Atlas');
-        server.listen(PORT, () => console.log(`🚀 Server on http://localhost:${PORT}`));
+        server.listen(PORT, '0.0.0.0', () => {
+            console.log(`🚀 Server on http://localhost:${PORT}`);
+            console.log(`➜  Network: http://10.11.12.78:${PORT}`);
+        });
     })
     .catch(() => {
         console.warn('⚠️ Atlas Connection Failed. Switching to MEMORY_FALLBACK mode.');
         useMemoryFallback = true;
-        server.listen(PORT, () => console.log(`🚀 Server (MEMORY_MODE) on http://localhost:${PORT}`));
+        server.listen(PORT, '0.0.0.0', () => {
+            console.log(`🚀 Server (MEMORY_MODE) on http://localhost:${PORT}`);
+            console.log(`➜  Network: http://10.11.12.78:${PORT}`);
+        });
     });
